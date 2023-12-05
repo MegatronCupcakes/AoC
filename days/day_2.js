@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {readFile} from 'node:fs/promises';
 
+const Part1 = Number(process.argv[3]) == 1;
 const inputLines = (await readFile(path.join('data', 'day_2.txt'), 'utf8'))
     .split('\n')
     .map(line => line.toLowerCase())
@@ -24,13 +25,25 @@ let games = (await Promise.all(inputLines.map(line => {
                     return _set;
                 })
             };
+            const _minNeededForColor = (game, color) => {
+                return game.sets.map(set => set[color]).sort((a, b) => b - a).filter(number => number > 0)[0];
+            }            
+            game.power = _minNeededForColor(game, "red") * _minNeededForColor(game, "green") * _minNeededForColor(game, "blue");            
             resolve(game);
         } catch(error){
             reject(error);
         }
     });    
-}))).filter(game => {
-    return game.sets.every(set => set.red <= 12 && set.green <= 13 && set.blue <=14);
-})
-const gameIdSum = games.reduce((sum, game) => sum + game._id, 0);
-console.log(`gameIdSum: ${gameIdSum}`);
+})));
+
+if(Part1){
+    games = games.filter(game => {
+        return game.sets.every(set => set.red <= 12 && set.green <= 13 && set.blue <=14);
+    });
+    const gameIdSum = games.reduce((sum, game) => sum + game._id, 0);
+    console.log(`gameIdSum: ${gameIdSum}`);
+} else {
+    const gamePowerSum = games.reduce((sum, game) => sum + game.power, 0);
+    console.log(`gamePowerSum: ${gamePowerSum}`);
+}
+
