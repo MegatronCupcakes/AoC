@@ -1,7 +1,9 @@
 import path from 'node:path';
 import {readFile} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
+import _ from 'underscore';
 
-const TEST = false;
+const TEST = process.env.TEST_MODE == 'true';
 
 let data;
 if(TEST){
@@ -39,8 +41,8 @@ const isNumeric = (value) => {
 const isSymbol = (value) => {
     return value != "." && !isNumeric(value);
 };
-const isAdjacentToSymbol = (position, symbols) => {
-    return symbols.some(symbol => {
+const findAdjacentSymbols = (position, symbols) => {
+    return _.filter(symbols, symbol => {
         const _adjacent = (symbol.row == position.row && symbol.column - 1 == position.column) // left
         || (symbol.row - 1 == position.row && symbol.column - 1 == position.column) // diagnol up left
         || (symbol.row - 1 == position.row && symbol.column == position.column) // above
@@ -53,6 +55,7 @@ const isAdjacentToSymbol = (position, symbols) => {
     });
 }
 
+
 let symbols = [];
 let numbers = await Promise.all(data.map((row, rowIndex) => new Promise((resolve, reject) => {
     try {
@@ -62,7 +65,7 @@ let numbers = await Promise.all(data.map((row, rowIndex) => new Promise((resolve
                 rowNumbers.push({value: lineCharacter, row: rowIndex, column: columnIndex});
             }
             if(isSymbol(lineCharacter)){
-                symbols.push({value: lineCharacter, row: rowIndex, column: columnIndex});
+                symbols.push({_id: randomUUID(), value: lineCharacter, row: rowIndex, column: columnIndex, gear: lineCharacter == '*', adjacentNumbers: []});
             }
         });
                 
@@ -82,30 +85,25 @@ let numbers = await Promise.all(data.map((row, rowIndex) => new Promise((resolve
                     groupNumbers(currentNumber, numberArray, groupedNumbers, fn)
                 } else {
                     groupedNumbers.push(currentNumber);
-                    groupNumbers({
-                        value: nextNumber.value,
-                        positions: [
-                            {
-                                row: nextNumber.row,
-                                column: nextNumber.column
-                            }
-                        ]
-                    }, numberArray, groupedNumbers, fn);
+                    groupNumbers(createNumberGroup(nextNumber), numberArray, groupedNumbers, fn);
                 }                
-            }
-            
+            }            
         }
-        const firstNumber = rowNumbers.shift();
-        if(firstNumber){
-            groupNumbers({
-                value: firstNumber.value,
+        const createNumberGroup = (number) => {
+            return {
+                _id: randomUUID(),
+                value: number.value,
                 positions: [
                     {
-                        row: firstNumber.row,
-                        column: firstNumber.column
+                        row: number.row,
+                        column: number.column
                     }
                 ]
-            }, rowNumbers, [], resolve);
+            }
+        };
+        const firstNumber = rowNumbers.shift();
+        if(firstNumber){
+            groupNumbers(createNumberGroup(firstNumber), rowNumbers, [], resolve);
         } else {
             resolve([]);
         }
@@ -113,10 +111,32 @@ let numbers = await Promise.all(data.map((row, rowIndex) => new Promise((resolve
         reject(error);
     }
 })));
+let gearSymbols = _.where(symbols, {gear: true});
+let gearNumberXref = [];
 numbers = numbers.flat();
-numbers.forEach((number, numberIndex) => {
-    numbers[numberIndex].isAdjacent = number.positions.some(position => isAdjacentToSymbol(position, symbols));
+numbers.map((number) => {
+    const adjacentSymbols = number.positions.map(position => findAdjacentSymbols(position, symbols))
+        .flat()
+        .map(symbol => symbol._id);
+    const adjacentGearSymbols = number.positions.map(position => findAdjacentSymbols(position, gearSymbols))
+        .flat()
+        .map(symbol => symbol._id);
+    number.adjacentSymbols = adjacentSymbols;
+    number.isAdjacent = adjacentSymbols.length > 0;
+    number.isAdjacentToGear = adjacentGearSymbols.length > 0;
+    number.adjacentGearSymbols = adjacentGearSymbols;
+    adjacentGearSymbols.forEach(gearSymbolId => {
+        if(!_.findWhere(gearNumberXref, {numberId: number._id})){
+            gearNumberXref.push({gearId: gearSymbolId, numberId: number._id, value: number.value});
+        }
+    });
+    return number;
 });
+const groupedByGear = _.groupBy(gearNumberXref, 'gearId');
+const gearRatios = _.compact(_.keys(groupedByGear).map(key => {
+    if(groupedByGear[key].length == 2) return Number(groupedByGear[key][0].value) * Number(groupedByGear[key][1].value);
+}));
 const adjacentValues = numbers.filter(number => number.isAdjacent).map(number => number.value);
 const numberSum = adjacentValues.reduce((sum, value) => sum + Number(value), 0);
-console.log(`numberSum: ${numberSum}`);
+const gearRatioSum = gearRatios.reduce((sum, value) => sum + value, 0);
+console.log(`numberSum: ${numberSum}; gearRatioSum: ${gearRatioSum}`);
