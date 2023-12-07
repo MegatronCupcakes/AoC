@@ -49,8 +49,8 @@ if(TEST){
     .map(line => line.toLowerCase())
     .map(line => line.trim());
 }
-const lookupSequence = ['seed', 'soil', 'fertilizer', 'water', 'light', 'temperature', 'humidity', 'location'];
-const seeds = (data.shift()).split(":")[1].trim().split(' ').map(value => Number(value));
+const lookupSequence = ['seed', 'soil', 'fertilizer', 'water', 'light', 'temperature', 'humidity'];
+const seeds = _.chunk((data.shift()).split(":")[1].trim().split(' ').map(value => Number(value)), 2).map(pair => {return {seedRangeStart: pair[0], seedRangeEnd: pair[0] + pair[1] - 1, seedRange: pair[1]}});
 const maps = {
     sourceMaps: {},
     destinationMaps: {}
@@ -92,36 +92,23 @@ await new Promise((resolve, reject) => {
     }
 });
 
-const seedMaps = await Promise.all(seeds.map(seed => new Promise((resolve, reject) => {
-    try {
-        const lookup = (number, sequence, seedMap) => {
-            if(sequence.length == 0){
-                resolve(seedMap);
-            } else {
-                const sequenceKey = sequence.shift();
-                const map = _.find(maps.sourceMaps[sequenceKey], map => map.sourceRangeStart <= number && number <= map.sourceRangeEnd);
-                if(map){                    
-                    number = map.destinationRangeStart + (number - map.sourceRangeStart);
-                }
-                seedMap[sequenceKey] = number;
-                lookup(number, sequence, seedMap);
-            }
-
-        }
-        lookup(seed, [...lookupSequence], {seed: seed});
-    } catch {
-        reject(error);
-    }
-})))
-const seedToSoil = {};
-seeds.forEach(seed => {
-    const map = _.find(maps.sourceMaps.seed, map => _.contains(map.sourceRange, seed));
-    if(map){
-        const index = map.sourceRange.indexOf(seed);
-        seedToSoil[seed] = map.destinationRange[index];
+const lookup = (number, sequence) => {
+    if(sequence.length == 0){
+        // since we're only interested in the lowest location value, we don't need to store all locations.
+        if(!lowestLocation || number < lowestLocation) lowestLocation = number;
     } else {
-        seedToSoil[seed] = seed;
+        const sequenceKey = sequence.shift();
+        const _maps = maps.sourceMaps[sequenceKey].filter(_map => _map.sourceRangeStart <= number && number <= _map.sourceRangeEnd);        
+        if(_maps.length > 0){                    
+            number = _maps[0].destinationRangeStart + (number - _maps[0].sourceRangeStart);
+        }
+        lookup(number, sequence);                
     }
-});
-const lowestDestination = seedMaps.map(seedMap => seedMap.location).sort((a, b) => a - b)[0];
-console.log(`lowest destination: ${lowestDestination}`);
+}
+let lowestLocation = null;
+for(let i = 0; i < seeds.length; i++){    
+    for(let _i = seeds[i].seedRangeStart; _i <= seeds[i].seedRangeEnd; _i++){        
+        lookup(_i, [...lookupSequence]);
+    }
+}
+console.log(`lowest destination: ${lowestLocation}`);
